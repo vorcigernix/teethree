@@ -1,0 +1,9 @@
+<!-- Dark mode uses the lighter tones of the same system palettes. -->
+<resources>
+    <color name="agent_activity_working">@android:color/system_accent1_200</color>
+    <color name="agent_activity_attention">@android:color/system_accent3_200</color>
+    <color name="agent_activity_input">@android:color/system_accent3_200</color>
+    <color name="agent_activity_waiting">@android:color/system_neutral2_300</color>
+    <color name="agent_activity_done">#A1D599</color>
+    <color name="agent_activity_failed">@color/widget_danger</color>
+</resources>

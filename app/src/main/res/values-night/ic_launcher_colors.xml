@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark tonal surface + primary 80, as the themed icon looks in dark mode. -->
+    <color name="ic_launcher_background">#283A59</color>
+    <color name="ic_launcher_glyph">#AAC7FF</color>
+</resources>

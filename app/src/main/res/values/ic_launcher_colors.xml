@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Flat launcher icon, matching the themed icon's light pair: primary container + on it. -->
+    <color name="ic_launcher_background">#D6E3FF</color>
+    <color name="ic_launcher_glyph">#284777</color>
+</resources>

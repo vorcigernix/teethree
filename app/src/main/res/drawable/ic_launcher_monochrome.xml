@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Themed icon (Android 13+): the launcher tints it from the wallpaper; only alpha matters. -->
+    <group android:translateX="28.08" android:translateY="28.08" android:scaleX="0.1296" android:scaleY="0.1296">
+        <group android:name="bracket_left" android:translateX="24.7178" android:translateY="121.3787">
+            <path android:fillColor="#FFFFFF" android:pathData="M84.50167 3.15786c-5.07317-4.4878-13.07317-4.14634-18.04877 0.7317l-61.56099 61.80488c-6.68293 6.63416-6.43903 17.95122 0.2439 24.43904l61.60976 63.02439c4.82927 4.92685 12.7805 5.46341 17.7561 0.92685 5.17074-4.78049 5.17074-13.60977 0.19512-18.48783l-54.2439-54.78049c-1.31707-1.31708-1.31707-3.46341 0-4.68292l54-54.14635c5.17074-5.26829 5.2683-14.19513 0.04878-18.82927z" />
+        </group>
+        <group android:name="bracket_right" android:translateX="286.8597" android:translateY="121.3787">
+            <path android:fillColor="#FFFFFF" android:pathData="M3.92075 3.15786c5.07318-4.4878 13.07318-4.14634 18.04879 0.7317l61.21952 61.70733c6.92682 6.78049 6.58536 18.34146-0.34146 24.87805l-61.36588 62.73173c-4.82925 4.92681-12.43903 5.36584-17.56097 0.48779-5.17072-5.02439-5.07315-13.51221 0-18.43903l54.04879-54.39026c1.31705-1.31706 1.31705-3.46341 0-4.68293l-54.09756-54.29267c-5.17075-5.26828-5.17075-14.09757 0.04877-18.73171z" />
+        </group>
+        <group android:name="bar_1" android:translateX="119.8049" android:translateY="180.3415">
+            <path android:fillColor="#FFFFFF" android:pathData="M11.36585 0c-6.68292 0-11.36585 5.21951-11.36585 11.56097l0 21.60976c0 6.43902 5.12196 11.99998 11.36585 11.99998 6.48781 0 11.95122-5.17073 11.95122-11.65852l0-21.95122c0-6.48782-5.26828-11.56097-11.95122-11.56097z" />
+        </group>
+        <group android:name="bar_2" android:translateX="154.0" android:translateY="155.3171">
+            <path android:fillColor="#FFFFFF" android:pathData="M11.56097 0c-6.58536 0-11.56097 5.31708-11.56097 11.90244l0 65.21952c0 6.78049 5.26831 12.34146 11.56097 12.34146 6.58537 0 11.95122-5.31708 11.95122-12l0-65.56099c0-6.58536-5.36585-11.90243-11.95122-11.90243z" />
+        </group>
+        <group android:name="bar_3" android:translateX="188.3902" android:translateY="135.3659">
+            <path android:fillColor="#FFFFFF" android:pathData="M11.41464 0c-6.58537 0-11.41464 5.21951-11.41464 11.65852l0 105.21952c0 6.68295 5.2683 12 11.41464 12 6.48781 0 12.04878-5.31705 12.04879-11.85364l0-105.36588c0-6.58536-5.31708-11.65852-12.04879-11.65852z" />
+        </group>
+        <group android:name="bar_4" android:translateX="222.6829" android:translateY="155.3171">
+            <path android:fillColor="#FFFFFF" android:pathData="M11.60974 0c-6.58536 0-11.60974 5.31708-11.60974 11.90244l0 65.56099c0 6.68292 5.46341 12 11.60974 11.99999 6.48782 0 11.70732-5.31708 11.70732-11.85366l0-65.41463c0-6.87805-5.02438-12.19513-11.70732-12.19513z" />
+        </group>
+        <group android:name="bar_5" android:translateX="256.9756" android:translateY="180.3415">
+            <path android:fillColor="#FFFFFF" android:pathData="M11.60977 0c-6.63416 0-11.60977 5.21951-11.60977 11.56097l0 21.60976c0 6.63414 5.31708 11.99998 11.60977 11.99998 6.39023 0 11.65854-5.46341 11.65854-11.90242l0-21.70732c0-6.48782-5.12195-11.56097-11.65854-11.56097z" />
+        </group>
+    </group>
+</vector>

@@ -1,0 +1,12 @@
+<!-- Phase tints come from the system (Material You) palette and use the same roles as the app:
+     primary while working, tertiary when the agent needs you (like "Needs you" in the chat list),
+     neutral variant while waiting, and the fixed Material error color on failure. Material You has
+     no green, so "done" is the app's success tone, harmonized toward primary at runtime. -->
+<resources>
+    <color name="agent_activity_working">@android:color/system_accent1_600</color>
+    <color name="agent_activity_attention">@android:color/system_accent3_600</color>
+    <color name="agent_activity_input">@android:color/system_accent3_600</color>
+    <color name="agent_activity_waiting">@android:color/system_neutral2_600</color>
+    <color name="agent_activity_done">#3B6939</color>
+    <color name="agent_activity_failed">@color/widget_danger</color>
+</resources>

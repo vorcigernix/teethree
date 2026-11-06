@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:id="@+id/widget_root" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:padding="16dp" android:background="@drawable/subscription_widget_background" android:contentDescription="@string/usage_widget_label">
+    <LinearLayout android:id="@+id/widget_providers" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" />
+    <TextView android:id="@+id/widget_checked_at" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="@string/usage_widget_empty" android:textColor="@color/widget_secondary" android:textSize="10sp" android:maxLines="1" />
+</LinearLayout>
