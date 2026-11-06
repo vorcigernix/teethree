@@ -63,6 +63,6 @@ class MainActivity : ComponentActivity() {
 
     private fun consumeIncomingLink() {
         incomingLink = null
-        setIntent(Intent(intent).setData(null))
+        intent = Intent(intent).setData(null)
     }
 }

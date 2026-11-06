@@ -499,8 +499,10 @@ private fun MicColumn(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 16.dp),
     ) {
+        val pushToTalk = rememberPushToTalk(voice)
         Box(
             Modifier.size(outer)
+                .releaseEndsHold(pushToTalk)
                 .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
@@ -521,8 +523,11 @@ private fun MicColumn(
                     "Talk to the agent",
                     enabled = enabled,
                     onTap = { onStart(false) },
-                    onHoldStart = { onStart(true) },
-                    onHoldEnd = { voice.finish(VoiceFinish.Send) },
+                    onHoldStart = {
+                        pushToTalk.begin()
+                        onStart(true)
+                    },
+                    onHoldEnd = pushToTalk::release,
                     buttonSize = button,
                     haloSize = halo,
                     corner = corner,

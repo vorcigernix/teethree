@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.outlined.AddPhotoAlternate
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Keyboard
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -52,6 +53,8 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.Stable
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -108,11 +111,20 @@ internal fun VoiceDock(
     target: String,
     modifier: Modifier = Modifier,
     draftPreview: String = "",
+    onSend: (() -> Unit)? = null,
+    sendEnabled: Boolean = false,
+    sendDescription: String = "Send",
     compactListening: Boolean = false,
     compactLabel: String = "Listening…",
     topContent: @Composable ColumnScope.() -> Unit = {},
 ) {
-    Box(modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp)) {
+    val pushToTalk = rememberPushToTalk(voice)
+    Box(
+        modifier
+            .fillMaxWidth()
+            .releaseEndsHold(pushToTalk)
+            .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp)
+    ) {
         when {
             voice.listening && compactListening ->
                 LiveVoiceBar(voice, compactLabel, onKeyboard = {
@@ -128,6 +140,7 @@ internal fun VoiceDock(
             else ->
                 IdleDock(
                     voice,
+                    pushToTalk,
                     onStartVoice,
                     onKeyboard,
                     onAttach,
@@ -136,6 +149,9 @@ internal fun VoiceDock(
                     chips,
                     hint,
                     draftPreview,
+                    onSend,
+                    sendEnabled,
+                    sendDescription,
                     topContent,
                 )
         }
@@ -145,6 +161,7 @@ internal fun VoiceDock(
 @Composable
 private fun IdleDock(
     voice: VoiceInput,
+    pushToTalk: PushToTalk,
     onStartVoice: (hold: Boolean) -> Unit,
     onKeyboard: () -> Unit,
     onAttach: () -> Unit,
@@ -153,6 +170,9 @@ private fun IdleDock(
     chips: List<DockChip>,
     hint: String,
     draftPreview: String,
+    onSend: (() -> Unit)?,
+    sendEnabled: Boolean,
+    sendDescription: String,
     topContent: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -169,17 +189,32 @@ private fun IdleDock(
         ) {
             topContent()
             if (draftPreview.isNotBlank())
-                Text(
-                    draftPreview,
-                    Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable(onClickLabel = "Edit draft", onClick = onKeyboard)
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = colors.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                // Words already in the draft (spoken or typed): tap to edit, or send them as they are.
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        draftPreview,
+                        Modifier.weight(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable(onClickLabel = "Edit draft", onClick = onKeyboard)
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (onSend != null)
+                        FilledIconButton(
+                            onClick = onSend,
+                            enabled = sendEnabled,
+                            modifier = Modifier.size(44.dp).testTag("voice-dock-send"),
+                        ) {
+                            Icon(Icons.Default.ArrowUpward, sendDescription, Modifier.size(20.dp))
+                        }
+                }
             if (chips.isNotEmpty())
                 Row(
                     Modifier.horizontalScroll(rememberScrollState()),
@@ -199,8 +234,11 @@ private fun IdleDock(
                     "Talk to the agent",
                     enabled = enabled,
                     onTap = { onStartVoice(false) },
-                    onHoldStart = { onStartVoice(true) },
-                    onHoldEnd = { voice.finish(VoiceFinish.Send) },
+                    onHoldStart = {
+                        pushToTalk.begin()
+                        onStartVoice(true)
+                    },
+                    onHoldEnd = pushToTalk::release,
                     modifier = Modifier.testTag("voice-mic"),
                 )
                 DockCircleButton(
@@ -549,8 +587,11 @@ internal fun VoiceHeroButton(
                             else -> {
                                 haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 onHoldStart()
-                                waitForUpOrCancellation()
-                                onHoldEnd()
+                                // Starting a capture usually swaps this button for the listening
+                                // panel, which cancels this gesture: that is not a release, so only
+                                // a real lift ends it here. [releaseEndsHold] on the container
+                                // catches the lift after the swap.
+                                if (waitForUpOrCancellation() != null) onHoldEnd()
                             }
                         }
                         pressed = false
@@ -629,3 +670,42 @@ private fun elapsedLabel(startedAt: Long): String {
     val seconds = ((now - startedAt) / 1000).coerceAtLeast(0)
     return "%d:%02d".format(seconds / 60, seconds % 60)
 }
+
+/**
+ * Push-to-talk across the swap: holding the mic starts a capture, which replaces the mic with the
+ * listening panel. The finger's eventual lift lands on whatever is there by then, so the release is
+ * tracked on a container that outlives the swap (see [releaseEndsHold]).
+ */
+@Stable
+internal class PushToTalk(private val voice: VoiceInput) {
+    internal var holding = false
+
+    fun begin() {
+        holding = true
+    }
+
+    fun release() {
+        if (!holding) return
+        holding = false
+        voice.finish(VoiceFinish.Send)
+    }
+}
+
+@Composable
+internal fun rememberPushToTalk(voice: VoiceInput): PushToTalk {
+    val pushToTalk = remember(voice) { PushToTalk(voice) }
+    // A capture that ended on its own (error, "Edit text") is no longer held.
+    LaunchedEffect(voice.listening) { if (!voice.listening) pushToTalk.holding = false }
+    return pushToTalk
+}
+
+/** Ends a held capture when every finger is up. Watches without consuming anything. */
+internal fun Modifier.releaseEndsHold(pushToTalk: PushToTalk): Modifier =
+    pointerInput(pushToTalk) {
+        awaitPointerEventScope {
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                if (pushToTalk.holding && event.changes.none { it.pressed }) pushToTalk.release()
+            }
+        }
+    }

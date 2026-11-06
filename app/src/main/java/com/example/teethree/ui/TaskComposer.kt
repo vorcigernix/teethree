@@ -105,6 +105,7 @@ internal fun TaskComposer(
     val activeVoice = voice ?: ownVoice!!
     val latestDraft = rememberUpdatedState(draft)
     val latestSubmit = rememberUpdatedState(onSubmit)
+    val latestSubmitEnabled = rememberUpdatedState(submitEnabled)
     val latestDraftChange = rememberUpdatedState(onDraftChange)
     val latestVoiceResult = rememberUpdatedState(onVoiceResult)
     // The transcript joins whatever was typed, then sends; "Edit text" opens the keyboard on it
@@ -120,7 +121,9 @@ internal fun TaskComposer(
                     joinSpeech(composerEditableText(current.text, current.context), text)
                 val next = replaceComposerDraftText(current, combined)
                 latestDraftChange.value(next)
-                if (finish == VoiceFinish.Send) {
+                // Only send when the screen could: otherwise the words stay in the dock, next to a
+                // send button that lights up once it can (e.g. the new-task form is still loading).
+                if (finish == VoiceFinish.Send && latestSubmitEnabled.value) {
                     SpokenMessages.record(context, next, activeVoice.lastDurationMs)
                     latestSubmit.value()
                 }
@@ -173,6 +176,9 @@ internal fun TaskComposer(
                 hint = voiceHint,
                 target = voiceTarget,
                 draftPreview = editableText,
+                onSend = onSubmit,
+                sendEnabled = editable && submitEnabled,
+                sendDescription = submitDescription,
                 compactListening = compactListening,
                 compactLabel = compactListeningLabel,
                 topContent = {

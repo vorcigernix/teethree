@@ -6,6 +6,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -62,7 +63,9 @@ internal val LocalComposerInputMode = staticCompositionLocalOf {
  * render inside the dock instead of the system dictation dialog.
  *
  * A tap captures one utterance and finishes when the speaker pauses ("pause to send"). Holding the
- * mic keeps restarting the recognizer across pauses until release (push-to-talk).
+ * mic keeps listening across pauses until release (push-to-talk). On Android 14+ both use Google's
+ * speech service, the engine behind the keyboard's voice typing. Older phones hold-to-talk on the
+ * on-device recognizer, which keeps one session (and so one sentence context) open through pauses.
  */
 @Stable
 internal class VoiceInput(private val context: Context) {
@@ -93,7 +96,19 @@ internal class VoiceInput(private val context: Context) {
     val available: Boolean = SpeechRecognizer.isRecognitionAvailable(context)
 
     private var recognizer: SpeechRecognizer? = null
+    private var onDeviceRecognizer: SpeechRecognizer? = null
+    /** The recognizer serving the current capture, so finish/cancel reach the right one. */
+    private var current: SpeechRecognizer? = null
+    /** On-device recognition failed (e.g. no language pack yet); use the online one for now. */
+    private var onDeviceUnavailable = false
+    private var onDeviceActive = false
+    /** Push-to-talk records the mic itself and feeds the recognizer, so restarts lose no audio. */
+    private var feeder: AudioFeeder? = null
+    private var feederUnavailable = false
     private var holding = false
+    /** The recognizer refused a segmented session once; push-to-talk falls back to restarts. */
+    private var segmentedUnsupported = false
+    private var segmentedActive = false
     private var finish = VoiceFinish.Send
     private var onDone: ((String, VoiceFinish) -> Unit)? = null
 
@@ -103,12 +118,46 @@ internal class VoiceInput(private val context: Context) {
             .putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
             .putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+            .putExtra(RecognizerIntent.EXTRA_LANGUAGE, recognitionLanguage())
+            .apply {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    putExtra(
+                        RecognizerIntent.EXTRA_ENABLE_FORMATTING,
+                        RecognizerIntent.FORMATTING_OPTIMIZE_QUALITY,
+                    )
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    putExtra(RecognizerIntent.EXTRA_MASK_OFFENSIVE_WORDS, false)
+                }
+            }
             // Leave room for a breath mid-sentence before "pause to send" kicks in.
             .putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1600L)
             .putExtra(
                 RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
                 1600L,
             )
+
+    /**
+     * Push-to-talk keeps listening through pauses until release. On Android 13+ that's one
+     * segmented session (pauses only split it into segments). Otherwise the recognizer restarts
+     * after each pause, with a long silence window so normal pauses don't end a session.
+     */
+    private val holdIntent: Intent
+        get() =
+            Intent(intent).apply {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !segmentedUnsupported)
+                    putExtra(
+                        RecognizerIntent.EXTRA_SEGMENTED_SESSION,
+                        RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS,
+                    )
+                else {
+                    putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 10_000L)
+                    putExtra(
+                        RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS,
+                        10_000L,
+                    )
+                }
+            }
 
     fun start(hold: Boolean = false, onDone: (String, VoiceFinish) -> Unit) {
         cancel()
@@ -121,6 +170,8 @@ internal class VoiceInput(private val context: Context) {
         for (index in levels.indices) levels[index] = 0f
         startedAt = SystemClock.elapsedRealtime()
         listening = true
+        if (hold && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !feederUnavailable)
+            feeder = AudioFeeder.open { level -> main.post { if (feeder != null) push(level) } }
         listen()
     }
 
@@ -129,14 +180,17 @@ internal class VoiceInput(private val context: Context) {
         if (!listening) return
         finish = action
         holding = false
-        recognizer?.stopListening()
+        // With fed audio, ending the stream is what makes the recognizer commit the last words.
+        feeder?.endSession()
+        current?.stopListening()
     }
 
     /** Discards the capture without delivering anything. */
     fun cancel() {
         onDone = null
         holding = false
-        if (listening) recognizer?.cancel()
+        stopFeeder()
+        if (listening) current?.cancel()
         listening = false
         transcript = ""
         partial = ""
@@ -146,16 +200,62 @@ internal class VoiceInput(private val context: Context) {
         cancel()
         recognizer?.destroy()
         recognizer = null
+        onDeviceRecognizer?.destroy()
+        onDeviceRecognizer = null
+        current = null
+    }
+
+    private fun createRecognizer(): SpeechRecognizer {
+        val googleServicesComponent =
+            android.content.ComponentName(
+                "com.google.android.googlequicksearchbox",
+                "com.google.android.voicesearch.serviceapi.GoogleRecognitionService",
+            )
+        return try {
+            SpeechRecognizer.createSpeechRecognizer(context, googleServicesComponent)
+        } catch (_: Throwable) {
+            SpeechRecognizer.createSpeechRecognizer(context)
+        }
     }
 
     private fun listen() {
+        // Android 14+: always Google's speech service, the engine the keyboard's voice typing uses.
+        // Older phones hold-to-talk on the on-device recognizer, which keeps pauses in one session.
+        onDeviceActive =
+            holding &&
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE &&
+                !onDeviceUnavailable &&
+                SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
         val active =
-            recognizer
-                ?: SpeechRecognizer.createSpeechRecognizer(context).also {
-                    it.setRecognitionListener(listener)
-                    recognizer = it
+            if (onDeviceActive)
+                onDeviceRecognizer
+                    ?: SpeechRecognizer.createOnDeviceSpeechRecognizer(context).also {
+                        it.setRecognitionListener(listener)
+                        onDeviceRecognizer = it
+                    }
+            else
+                recognizer
+                    ?: createRecognizer().also {
+                        it.setRecognitionListener(listener)
+                        recognizer = it
+                    }
+        current = active
+        segmentedActive =
+            holding && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !segmentedUnsupported
+        val fed = feeder?.takeIf { holding }
+        if (fed != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+            active.startListening(
+                Intent(holdIntent).apply {
+                    putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE, fed.newSession())
+                    putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_CHANNEL_COUNT, 1)
+                    putExtra(
+                        RecognizerIntent.EXTRA_AUDIO_SOURCE_ENCODING,
+                        android.media.AudioFormat.ENCODING_PCM_16BIT,
+                    )
+                    putExtra(RecognizerIntent.EXTRA_AUDIO_SOURCE_SAMPLING_RATE, AudioFeeder.Rate)
                 }
-        active.startListening(intent)
+            )
+        else active.startListening(if (holding) holdIntent else intent)
     }
 
     /** Marks a capture that the system dictation dialog made, so it has no duration. */
@@ -163,7 +263,13 @@ internal class VoiceInput(private val context: Context) {
         lastDurationMs = 0L
     }
 
+    private fun stopFeeder() {
+        feeder?.close()
+        feeder = null
+    }
+
     private fun deliver() {
+        stopFeeder()
         lastDurationMs = SystemClock.elapsedRealtime() - startedAt
         val text = joinSpeech(transcript, partial)
         val callback = onDone
@@ -185,11 +291,16 @@ internal class VoiceInput(private val context: Context) {
 
             override fun onBeginningOfSpeech() = Unit
 
-            override fun onRmsChanged(rmsdB: Float) = push((rmsdB + 2f) / 12f)
+            override fun onRmsChanged(rmsdB: Float) {
+                if (feeder == null) push((rmsdB + 2f) / 12f)
+            }
 
             override fun onBufferReceived(buffer: ByteArray?) = Unit
 
-            override fun onEndOfSpeech() = Unit
+            // The recognizer is closing this phrase: from here, buffer the mic for the next one.
+            override fun onEndOfSpeech() {
+                feeder?.endSession()
+            }
 
             override fun onEvent(eventType: Int, params: Bundle?) = Unit
 
@@ -199,17 +310,77 @@ internal class VoiceInput(private val context: Context) {
 
             override fun onResults(results: Bundle?) {
                 if (!listening) return
+                feeder?.endSession()
                 transcript = joinSpeech(transcript, results.firstResult() ?: partial)
                 partial = ""
                 if (holding) listen() else deliver()
             }
 
+            // Segmented sessions (push-to-talk): each pause commits a segment, the session goes on.
+            override fun onSegmentResults(segmentResults: Bundle) {
+                if (!listening) return
+                transcript = joinSpeech(transcript, segmentResults.firstResult() ?: partial)
+                partial = ""
+            }
+
+            override fun onEndOfSegmentedSession() {
+                if (!listening) return
+                transcript = joinSpeech(transcript, partial)
+                partial = ""
+                // Ended by release (finish) or by the recognizer's own limit while still held.
+                if (holding) listen() else deliver()
+            }
+
             override fun onError(code: Int) {
                 if (!listening) return
+                feeder?.endSession()
+                // The recognizer won't take fed audio: let it use the microphone itself.
+                if (
+                    feeder != null &&
+                        holding &&
+                        code in OnDeviceUnavailableErrors &&
+                        code != SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED &&
+                        code != SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE
+                ) {
+                    feederUnavailable = true
+                    stopFeeder()
+                    listen()
+                    return
+                }
+                // No on-device model for this language yet: fetch it for next time, and carry on
+                // with the online recognizer for this hold.
+                if (onDeviceActive && holding && code in OnDeviceUnavailableErrors) {
+                    onDeviceUnavailable = true
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+                        runCatching { onDeviceRecognizer?.triggerModelDownload(intent) }
+                    listen()
+                    return
+                }
+                // A recognizer without segmented sessions: retry this hold the restart way.
+                if (
+                    segmentedActive &&
+                        holding &&
+                        code != SpeechRecognizer.ERROR_NO_MATCH &&
+                        code != SpeechRecognizer.ERROR_SPEECH_TIMEOUT &&
+                        code != SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS &&
+                        code != SpeechRecognizer.ERROR_NETWORK &&
+                        code != SpeechRecognizer.ERROR_NETWORK_TIMEOUT
+                ) {
+                    segmentedUnsupported = true
+                    listen()
+                    return
+                }
                 when (code) {
                     SpeechRecognizer.ERROR_NO_MATCH,
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT,
-                    SpeechRecognizer.ERROR_CLIENT -> if (holding) listen() else deliver()
+                    SpeechRecognizer.ERROR_CLIENT ->
+                        if (holding) {
+                            // A session that ended without a final result still heard these words:
+                            // keep them before starting the next, instead of starting over.
+                            transcript = joinSpeech(transcript, partial)
+                            partial = ""
+                            listen()
+                        } else deliver()
                     else -> {
                         error = speechErrorMessage(code)
                         onDone = null
@@ -221,8 +392,20 @@ internal class VoiceInput(private val context: Context) {
             }
         }
 
+    private val main = Handler(Looper.getMainLooper())
+
     companion object {
         const val LevelCount = 24
+
+        private val OnDeviceUnavailableErrors =
+            setOf(
+                SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED,
+                SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE,
+                SpeechRecognizer.ERROR_SERVER_DISCONNECTED,
+                SpeechRecognizer.ERROR_CANNOT_CHECK_SUPPORT,
+                SpeechRecognizer.ERROR_SERVER,
+                SpeechRecognizer.ERROR_CLIENT,
+            )
     }
 }
 
@@ -512,5 +695,147 @@ internal object SpokenMessages {
         return MessageDigest.getInstance("SHA-256")
             .digest(normalized.toByteArray())
             .joinToString("") { "%02x".format(it) }
+    }
+}
+
+/**
+ * The language to recognize. English set for a region without its own English speech model (e.g.
+ * "en-CZ") recognizes as US English: those regional variants have no on-device pack and weaker
+ * online accuracy. Other languages and English regions pass through unchanged.
+ */
+internal fun recognitionLanguage(locale: java.util.Locale = java.util.Locale.getDefault()): String =
+    if (locale.language == "en" && locale.country !in EnglishSpeechRegions) "en-US"
+    else locale.toLanguageTag()
+
+private val EnglishSpeechRegions =
+    setOf("US", "GB", "AU", "CA", "IN", "IE", "NZ", "ZA", "SG", "PH", "KE", "NG", "PK", "GH", "TZ")
+
+/**
+ * Records the microphone for a whole push-to-talk hold and streams it to one recognizer session
+ * at a time through a pipe. Between sessions (the recognizer closes a phrase at each pause and is
+ * restarted) the audio is buffered and handed to the next session first, so no word falls into
+ * the restart gap.
+ */
+private class AudioFeeder private constructor(
+    private val record: android.media.AudioRecord,
+    private val onLevel: (Float) -> Unit,
+) {
+    private val lock = Any()
+    private var sink: java.io.OutputStream? = null
+    private var source: android.os.ParcelFileDescriptor? = null
+    private val pending = ArrayDeque<ByteArray>()
+    private var pendingBytes = 0
+    @Volatile private var running = true
+
+    private val reader =
+        Thread({
+            val chunk = ByteArray(ChunkBytes)
+            while (running) {
+                val read = record.read(chunk, 0, chunk.size)
+                if (read <= 0) continue
+                val bytes = chunk.copyOf(read)
+                onLevel(level(bytes))
+                synchronized(lock) {
+                    val out = sink
+                    if (out != null)
+                        try {
+                            out.write(bytes)
+                            return@synchronized
+                        } catch (_: java.io.IOException) {
+                            sink = null
+                        }
+                    pending.addLast(bytes)
+                    pendingBytes += bytes.size
+                    while (pendingBytes > MaxPendingBytes) pendingBytes -= pending.removeFirst().size
+                }
+            }
+        }, "push-to-talk-audio")
+
+    init {
+        record.startRecording()
+        reader.start()
+    }
+
+    /** A new stream for the next recognizer session, starting with what was buffered meanwhile. */
+    fun newSession(): android.os.ParcelFileDescriptor {
+        val (read, write) = android.os.ParcelFileDescriptor.createPipe()
+        synchronized(lock) {
+            endSessionLocked()
+            val out = android.os.ParcelFileDescriptor.AutoCloseOutputStream(write)
+            try {
+                while (pending.isNotEmpty()) out.write(pending.removeFirst())
+            } catch (_: java.io.IOException) {}
+            pendingBytes = 0
+            sink = out
+            source = read
+        }
+        return read
+    }
+
+    /** Ends the current stream (the recognizer then commits it); new audio waits in the buffer. */
+    fun endSession() = synchronized(lock) { endSessionLocked() }
+
+    private fun endSessionLocked() {
+        runCatching { sink?.close() }
+        sink = null
+        runCatching { source?.close() }
+        source = null
+    }
+
+    fun close() {
+        running = false
+        runCatching { record.stop() }
+        reader.join(200)
+        record.release()
+        endSession()
+    }
+
+    private fun level(bytes: ByteArray): Float {
+        var sum = 0.0
+        var count = 0
+        var i = 0
+        while (i + 1 < bytes.size) {
+            val sample = (bytes[i].toInt() and 0xff) or (bytes[i + 1].toInt() shl 8)
+            sum += sample.toDouble() * sample
+            count++
+            i += 2
+        }
+        if (count == 0) return 0f
+        val rms = kotlin.math.sqrt(sum / count)
+        // Roughly matches the recognizer's own rmsdB scale used for the waveform.
+        return ((20 * kotlin.math.log10(rms.coerceAtLeast(1.0)) - 30) / 40).toFloat().coerceIn(0f, 1f)
+    }
+
+    companion object {
+        const val Rate = 16_000
+        private const val ChunkBytes = Rate / 50 * 2 // 20 ms of 16-bit mono
+        private const val MaxPendingBytes = Rate * 2 * 10 // 10 s
+
+        /** Null when the microphone can't be opened; push-to-talk then uses the recognizer's own. */
+        @android.annotation.SuppressLint("MissingPermission") // The voice starter checks it first.
+        fun open(onLevel: (Float) -> Unit): AudioFeeder? =
+            // Fed audio (EXTRA_AUDIO_SOURCE) needs Android 13.
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) null
+            else runCatching {
+                    val minimum =
+                        android.media.AudioRecord.getMinBufferSize(
+                            Rate,
+                            android.media.AudioFormat.CHANNEL_IN_MONO,
+                            android.media.AudioFormat.ENCODING_PCM_16BIT,
+                        )
+                    val record =
+                        android.media.AudioRecord(
+                            android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                            Rate,
+                            android.media.AudioFormat.CHANNEL_IN_MONO,
+                            android.media.AudioFormat.ENCODING_PCM_16BIT,
+                            maxOf(minimum, Rate * 2 / 5),
+                        )
+                    if (record.state != android.media.AudioRecord.STATE_INITIALIZED) {
+                        record.release()
+                        null
+                    } else AudioFeeder(record, onLevel)
+                }
+                .getOrNull()
     }
 }
