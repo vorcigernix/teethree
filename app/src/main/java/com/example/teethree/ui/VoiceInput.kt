@@ -205,17 +205,28 @@ internal class VoiceInput(private val context: Context) {
         current = null
     }
 
+    /**
+     * Google's speech service, the engine behind the keyboard's voice typing, when installed.
+     * It is looked up rather than named: its package differs between phones (Speech Services by
+     * Google on Pixels, the Google app elsewhere), and naming one that isn't a recognition service
+     * makes every capture fail to bind. Without one, the phone's default recognizer.
+     */
     private fun createRecognizer(): SpeechRecognizer {
-        val googleServicesComponent =
-            android.content.ComponentName(
-                "com.google.android.googlequicksearchbox",
-                "com.google.android.voicesearch.serviceapi.GoogleRecognitionService",
+        val google =
+            context.packageManager
+                .queryIntentServices(
+                    Intent(android.speech.RecognitionService.SERVICE_INTERFACE),
+                    0,
+                )
+                .mapNotNull { it.serviceInfo }
+                .sortedBy { GoogleSpeechPackages.indexOf(it.packageName).takeIf { i -> i >= 0 } ?: Int.MAX_VALUE }
+                .firstOrNull { it.packageName in GoogleSpeechPackages }
+        return if (google != null)
+            SpeechRecognizer.createSpeechRecognizer(
+                context,
+                android.content.ComponentName(google.packageName, google.name),
             )
-        return try {
-            SpeechRecognizer.createSpeechRecognizer(context, googleServicesComponent)
-        } catch (_: Throwable) {
-            SpeechRecognizer.createSpeechRecognizer(context)
-        }
+        else SpeechRecognizer.createSpeechRecognizer(context)
     }
 
     private fun listen() {
@@ -396,6 +407,10 @@ internal class VoiceInput(private val context: Context) {
 
     companion object {
         const val LevelCount = 24
+
+        /** Google's recognition services, preferred first. */
+        private val GoogleSpeechPackages =
+            listOf("com.google.android.tts", "com.google.android.googlequicksearchbox")
 
         private val OnDeviceUnavailableErrors =
             setOf(

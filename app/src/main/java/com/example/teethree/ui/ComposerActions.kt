@@ -82,7 +82,9 @@ internal fun ComposerActions(
                         .show()
                 }
             },
-            enabled = enabled,
+            // Switching to the voice dock is a local preference, so it never waits on the
+            // connection or a busy action; otherwise a saved keyboard mode can't be left.
+            enabled = enabled || onVoiceMode != null,
         ) {
             Icon(
                 Icons.Default.Mic,

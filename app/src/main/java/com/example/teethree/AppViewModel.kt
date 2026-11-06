@@ -1257,8 +1257,13 @@ class AppViewModel(application: Application, private val savedState: SavedStateH
             it.shellReady && it.connectionStatus == ConnectionStatus.Connected
         }
 
+    /**
+     * Opens a chat, switching environments first when it lives elsewhere. The saved copy shows at
+     * once and connecting carries on behind it, like on launch: nothing waits for the sync and the
+     * composer and voice stay usable (an exclusive "busy" action would lock them).
+     */
     fun openWorkspaceThread(ref: WorkspaceThreadRef) =
-        action(label = "Opening conversation…") {
+        action(exclusive = false) {
             val connection = workspaceConnection(ref.connectionId, ref.environmentId)
             if (
                 repository.connectionId != connection.id ||
@@ -1266,7 +1271,6 @@ class AppViewModel(application: Application, private val savedState: SavedStateH
             ) {
                 savedState["selected-thread:${connection.id}"] = ref.threadId
                 connectRepository(connection)
-                awaitWorkspace(connection.id, repository.connectionGeneration)
             }
             selectThread(ref.threadId)
         }

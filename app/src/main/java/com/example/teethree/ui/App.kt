@@ -1476,6 +1476,9 @@ private fun WorkspaceTaskComposer(
         onRemoveAttachment = { if (foreground) model.removeAttachment(null, it) },
         actionsEnabled =
             foreground && canConfigure && current.connectionStatus == ConnectionStatus.Connected,
+        // Speaking only fills the saved draft; starting the task is gated by submitEnabled. So the
+        // mic works while connecting too, like typing does.
+        voiceEnabled = target != null,
         attachmentRemovalEnabled = foreground && !app.busy,
         submitEnabled = canConfigure && (draft.text.isNotBlank() || draft.attachments.isNotEmpty()),
         busyLabel = app.busyLabel,

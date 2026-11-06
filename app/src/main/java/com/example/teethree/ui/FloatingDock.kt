@@ -14,12 +14,12 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -82,12 +82,15 @@ internal fun FloatingDockLayout(
 ) {
     val host = LocalDockHost.current
     if (host != null) {
-        val latest = rememberUpdatedState(dock)
         val present = dock != null
-        DisposableEffect(host, slot, present) {
-            if (present) host.slots[slot] = { latest.value?.invoke() }
-            onDispose { host.slots.remove(slot) }
+        // Hand the host a fresh wrapper on every composition. Compose keeps one lambda object for
+        // [dock] and updates it in place, so a wrapper registered once (or rememberUpdatedState)
+        // never tells the host that what the dock shows changed: it stayed frozen in its first
+        // state, e.g. every action disabled from a chat opened while still connecting.
+        SideEffect {
+            if (dock != null) host.slots[slot] = { dock() } else host.slots.remove(slot)
         }
+        DisposableEffect(host, slot) { onDispose { host.slots.remove(slot) } }
         Box(modifier) { content(if (present) host.height else 0.dp) }
         return
     }
