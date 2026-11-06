@@ -1,48 +1,93 @@
 # Teethree
 
-A native Kotlin and Jetpack Compose Android client for T3 Code. Open this directory
-in Android Studio. The project builds independently and vendors its terminal
-runtime under `third_party/ghostty`.
+A native Android client for T3 Code, by T3 Tools, written in Kotlin and Jetpack
+Compose. It connects to a T3 Code environment running on your
+desktop or server, so you can follow your coding agents, answer them, and start new
+tasks from your phone, by voice or by keyboard.
+
+## What it does
+
+- **Conversations.** Browse chats grouped by what needs you, what's running and what's
+  done. Read agent replies with Markdown and math, and reply to or steer a running agent.
+- **Approvals and questions.** Answer an agent's questions and approve or decline its
+  actions inline in the chat.
+- **Voice first.** Tap to talk, hold for push-to-talk, or go hands-free and have replies
+  read aloud. On Android 14 and newer it uses Google's speech service, the engine behind
+  Gboard's voice typing.
+- **Works while connecting.** The app opens on the screen you left, from a saved copy, and
+  reconnects in the background. Messages, approvals and answers you give meanwhile are
+  sent once connected. A quiet status line under the title shows the connection; help
+  appears only if the desktop can't be reached for 30 seconds.
+- **New tasks.** Pick a project, model and access mode, and start a task with text, voice,
+  files or shared content from other apps.
+- **Tools.** A terminal (Ghostty), browser and device previews, pull request review, and
+  project settings.
+- **Awareness.** Push notifications when an agent needs you, and a home-screen widget for
+  subscription usage.
+- **Adaptive layouts.** Phone, tablet and foldable layouts, including a tabletop voice
+  console on a half-folded phone.
+- **Several environments.** Pair with multiple T3 Code environments, directly over the
+  local network or through T3 Connect.
+
+## Requirements
+
+- Android 12 (API 31) or newer. Android 17 asks for local-network access when you connect
+  to an environment on your local network.
+- A running T3 Code environment to pair with, using that environment's pairing link.
 
 ## Build
 
-Use JDK 25, Android SDK 37, NDK `28.2.13676358`, and CMake `3.22.1`.
-Android Studio's bundled JDK and SDK Manager provide these tools. The original
-Gradle daemon criteria and Foojay resolver are preserved and select JDK 25.
-Set `JAVA_HOME` and `ANDROID_HOME`, or configure the SDK through `local.properties`.
+You need JDK 25, Android SDK 37, NDK `28.2.13676358` and CMake `3.22.1`. Android Studio's
+SDK Manager provides the SDK, NDK and CMake. Gradle's daemon toolchain criteria and the
+Foojay resolver download JDK 25 if it isn't installed. Gradle itself still needs a JDK to
+start: set `JAVA_HOME` (Android Studio's bundled JDK works) and `ANDROID_HOME`, or set the
+SDK path in `local.properties`. You can also open this directory in Android Studio.
 
 ```sh
-./gradlew :app:assembleDebug
-./gradlew :app:testDebugUnitTest :app:lintDebug
-./gradlew :app:installDebug
+./gradlew :app:assembleDebug                      # build the debug APK
+./gradlew :app:installDebug                       # build and install on a connected device
+./gradlew :app:testDebugUnitTest :app:lintDebug   # unit tests and lint
+./gradlew :app:connectedDebugAndroidTest          # Compose UI tests on a device
 ```
 
-The debug APK is `app/build/outputs/apk/debug/app-debug.apk`. The release task
-`:app:assembleRelease` produces an unsigned APK with code and resources optimized.
-Native Compose device tests run with `:app:connectedDebugAndroidTest`.
+The debug APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
+`:app:assembleRelease` builds an optimized APK signed with the debug key, so it installs
+over a debug build without losing data. Use a real signing key before publishing it.
 
-The app supports Android 12 and newer. Pair it with a running T3 Code environment
-using that environment's pairing link. Android 17 requests local-network access
-when connecting to local environments.
+Material 3 is pinned to `1.5.0-rc01`, ahead of the Compose BOM, for the Expressive
+components such as the wavy progress indicator. See `gradle/libs.versions.toml`.
 
-This candidate uses the original Android development package,
-`com.t3tools.t3code.dev`, separately from the published production app. Clerk's
-native OAuth callback is `clerk://com.t3tools.t3code.dev.callback`; the selected
-Clerk instance must authorize it. The default public key selects T3's hosted
-instance and does not grant access to configure its callback allowlist. An
-enabled email-code sign-in flow completes inside the native UI without an OAuth
-callback; use the email already attached to the existing T3 account.
+## Configuration
 
-The existing Android client remains the default until this Kotlin client reaches
-full feature parity and passes device verification.
+**Application ID.** The app uses T3 Code's Android development package,
+`com.t3tools.t3code.dev`, so it installs alongside the published T3 Code app.
 
-Push notifications use the original mobile build's
-`T3CODE_ANDROID_GOOGLE_SERVICES_FILE` environment variable or Gradle property.
-Point it at a Firebase Android configuration file with a client matching this
-app's application ID (`com.t3tools.t3code.dev`). An ignored
-`app/google-services.json` also works. Without that file the app builds normally;
-Firebase push delivery remains unconfigured. Device tokens are generated at
-runtime; Firebase server credentials belong to the relay deployment.
+**Sign-in (T3 Connect).** Sign-in uses Clerk. Email-code sign-in works entirely inside the
+app; use the email already attached to your T3 account. OAuth sign-in returns through
+`clerk://com.t3tools.t3code.dev.callback`, which the selected Clerk instance must allow.
+The default public key points at T3's hosted instance, and you can't change its callback
+allowlist.
 
-Ported T3 Code sources retain the upstream MIT notice in `third_party/t3code/LICENSE`.
-Terminal runtime/font provenance is recorded in `third_party/ghostty`.
+**Push notifications.** Set the `T3CODE_ANDROID_GOOGLE_SERVICES_FILE` environment variable
+or Gradle property to a Firebase Android configuration file whose client matches
+`com.t3tools.t3code.dev`, or place it at `app/google-services.json`, which git ignores.
+Without it the app builds normally, but push delivery stays off. Device tokens are created
+at runtime; Firebase server credentials belong to the relay deployment.
+
+## Project layout
+
+```
+app/src/main/java/com/example/teethree/
+  data/        connection, RPC client, repository and tool integrations
+  ui/          Compose screens, composer, voice input and theme
+  awareness/   notifications and the usage widget
+third_party/
+  ghostty/     terminal runtime, JNI bridge and fonts
+  t3code/      upstream license for ported T3 Code sources
+```
+
+## Licenses
+
+Code ported from T3 Code keeps its upstream MIT notice in `third_party/t3code/LICENSE`.
+The terminal runtime and font licenses and provenance are in `third_party/ghostty`. This
+repository doesn't have a license of its own yet.
