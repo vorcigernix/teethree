@@ -62,7 +62,8 @@ class NativeMathTextTest {
                 }
             }
         }
-        compose.waitUntil {
+        // The formulas typeset off the main thread; a cold emulator can take a few seconds.
+        compose.waitUntil(timeoutMillis = 10_000) {
             compose.runOnIdle {
                 textViews(compose.activity.window.decorView).count { view ->
                     (view.text as? Spanned)

@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -363,11 +364,16 @@ internal fun HostIndicator(onClick: () -> Unit, modifier: Modifier = Modifier, l
             }
         }
         if (label != null)
+            // The rail is narrow: a long host name ("Adam's MacBook Pro") ends in an ellipsis
+            // inside it instead of spilling past both edges.
             Text(
                 label,
+                Modifier.widthIn(max = 72.dp),
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             )
     }
 }

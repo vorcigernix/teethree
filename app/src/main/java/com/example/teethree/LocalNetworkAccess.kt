@@ -59,3 +59,19 @@ internal fun requiresLocalNetworkAccess(host: String, addresses: List<InetAddres
             (bytes.size == 16 && bytes[0].toInt() and 254 == 252)
     }
 }
+
+/**
+ * True when a typed server address or pairing link points at this network, judged without a DNS
+ * lookup so it is safe on the main thread: local names and private or loopback IP literals.
+ */
+internal fun looksLikeLocalNetwork(input: String): Boolean {
+    val host =
+        runCatching { com.example.teethree.data.parsePairingTarget(input, "-").first }
+            .mapCatching { URI(it).host?.trim('[', ']') }
+            .getOrNull() ?: return false
+    val literal = host.matches(Regex("[0-9.]+")) || host.contains(':')
+    val addresses =
+        if (literal) runCatching { listOf(InetAddress.getByName(host)) }.getOrDefault(emptyList())
+        else emptyList()
+    return requiresLocalNetworkAccess(host, addresses)
+}

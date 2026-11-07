@@ -1262,6 +1262,17 @@ class AppViewModel(application: Application, private val savedState: SavedStateH
      * once and connecting carries on behind it, like on launch: nothing waits for the sync and the
      * composer and voice stay usable (an exclusive "busy" action would lock them).
      */
+    /** Settles a finished chat, or brings a settled one back, on the active connection. */
+    fun setSettled(thread: com.example.teethree.data.T3Thread, settled: Boolean) =
+        action(exclusive = false) {
+            // settle() flips whatever the thread says, so hand it the opposite of the target.
+            com.example.teethree.data.ThreadStatusTools(repository)
+                .settle(thread.copy(settled = !settled))
+        }
+
+    fun toggleSettled(thread: com.example.teethree.data.T3Thread) =
+        setSettled(thread, !thread.settled)
+
     fun openWorkspaceThread(ref: WorkspaceThreadRef) =
         action(exclusive = false) {
             val connection = workspaceConnection(ref.connectionId, ref.environmentId)

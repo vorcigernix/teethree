@@ -208,7 +208,8 @@ class ConnectionStatesTest {
         compose.onAllNodesWithTag("floating-dock").assertCountEquals(1)
         compose.onNodeWithText("New task in", substring = true).assertDoesNotExist()
         compose.onNodeWithTag("connection-status").assertDoesNotExist()
-        compose.onNodeWithTag("host-dot").assertIsDisplayed()
+        // The dot sits inside the host button, which merges its children.
+        compose.onNodeWithTag("host-dot", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("Add clamp helper to math module").performClick()
         compose.waitForIdle()
         compose.onAllNodesWithTag("floating-dock").assertCountEquals(1)
@@ -258,7 +259,11 @@ class ConnectionStatesTest {
 
     @Test
     fun syncingThenConnectedSaysNothingExtra() {
-        show(link(LinkPhase.Syncing), connected = true)
+        // Syncing is only announced after a visible wait; a fast connect goes straight to normal.
+        val link = link(LinkPhase.Connecting)
+        show(link, connected = true)
+        compose.onNodeWithText("Connecting to devbox…").assertIsDisplayed()
+        link.info = link(LinkPhase.Syncing).info
         compose.onNodeWithText("Syncing…").assertIsDisplayed()
         compose.onNodeWithText("Back online").assertDoesNotExist()
         assertEquals(0, sent.size)

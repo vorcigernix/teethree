@@ -178,6 +178,10 @@ fun ChatScreen(
     projectLabel: String? = null,
     queued: List<ComposerDraft> = emptyList(),
     onEditQueued: (Int) -> Unit = {},
+    /** Opens status, agents, snooze and goal details. */
+    onStatus: (() -> Unit)? = null,
+    /** Settles a finished chat, or brings a settled one back. */
+    onToggleSettled: (() -> Unit)? = null,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     val hosted = LocalDockHost.current != null
@@ -293,6 +297,27 @@ fun ChatScreen(
                                         onHistory()
                                     },
                                 )
+                            onStatus?.let { open ->
+                                DropdownMenuItem(
+                                    text = { Text("Status and agents") },
+                                    onClick = {
+                                        menuOpen = false
+                                        open()
+                                    },
+                                )
+                            }
+                            onToggleSettled?.let { toggle ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(if (thread.settled) "Bring back from Settled" else "Settle")
+                                    },
+                                    onClick = {
+                                        menuOpen = false
+                                        toggle()
+                                    },
+                                    enabled = canOperate && !thread.isRunningForSettle(),
+                                )
+                            }
                             DropdownMenuItem(
                                 text = { Text("Conversation settings") },
                                 onClick = {
@@ -1798,3 +1823,6 @@ private fun SpokenMeta(durationMs: Long) {
         )
     }
 }
+
+private fun T3Thread.isRunningForSettle() =
+    activeRunId != null || status in setOf("queued", "preparing", "starting", "running", "waiting")

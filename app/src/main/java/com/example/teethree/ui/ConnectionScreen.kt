@@ -27,8 +27,10 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -55,6 +57,34 @@ fun ConnectionScreen(
     var url by rememberSaveable(initialUrl) { mutableStateOf(initialUrl) }
     var code by rememberSaveable(initialCode) { mutableStateOf(initialCode) }
     val canConnect = url.isNotBlank() && !loading
+    // App errors also go to a snackbar and are cleared when it times out. This screen has no
+    // snackbar, so keep the last one in view until the user changes something or tries again;
+    // otherwise a failed connect looks like nothing happened.
+    var shownError by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(error) { if (error != null) shownError = error }
+    // Android 17 blocks local-network sockets until the user allows it. Ask right when they tap
+    // Connect for a local address, then carry on either way: a refusal gets a clear error.
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var waitingForPermission by remember { mutableStateOf<Pair<String, String>?>(null) }
+    val permission =
+        androidx.activity.compose.rememberLauncherForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+        ) {
+            waitingForPermission?.let { (u, c) -> onConnect(u, c) }
+            waitingForPermission = null
+        }
+    fun connect() {
+        shownError = null
+        val target = url.trim() to code.trim()
+        if (
+            android.os.Build.VERSION.SDK_INT >= 37 &&
+                !com.example.teethree.localNetworkPermissionGranted(context) &&
+                com.example.teethree.looksLikeLocalNetwork(target.first)
+        ) {
+            waitingForPermission = target
+            permission.launch(android.Manifest.permission.ACCESS_LOCAL_NETWORK)
+        } else onConnect(target.first, target.second)
+    }
     Scaffold(
         topBar = {
             LargeTopAppBar(
@@ -68,11 +98,14 @@ fun ConnectionScreen(
             )
         }
     ) { insets ->
-        Box(Modifier.fillMaxSize().padding(insets), contentAlignment = Alignment.TopCenter) {
+        // The whole width scrolls, so a swipe in the side margins of a wide screen works too.
+        Box(
+            Modifier.fillMaxSize().padding(insets).verticalScroll(rememberScrollState()),
+            contentAlignment = Alignment.TopCenter,
+        ) {
             Column(
                 Modifier.widthIn(max = 600.dp)
                     .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 24.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
@@ -114,7 +147,10 @@ fun ConnectionScreen(
                 }
                 OutlinedTextField(
                     value = url,
-                    onValueChange = { url = it },
+                    onValueChange = {
+                        url = it
+                        shownError = null
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Server URL or pairing link") },
                     supportingText = {
@@ -133,7 +169,10 @@ fun ConnectionScreen(
                 )
                 OutlinedTextField(
                     value = code,
-                    onValueChange = { code = it },
+                    onValueChange = {
+                        code = it
+                        shownError = null
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     label = { Text("Pairing code") },
                     supportingText = {
@@ -151,12 +190,12 @@ fun ConnectionScreen(
                     keyboardActions =
                         KeyboardActions(
                             onDone = {
-                                if (canConnect) onConnect(url.trim(), code.trim())
+                                if (canConnect) connect()
                             }
                         ),
                     shape = MaterialTheme.shapes.medium,
                 )
-                if (error != null) {
+                shownError?.let { error ->
                     Text(
                         error,
                         color = MaterialTheme.colorScheme.error,
@@ -165,7 +204,7 @@ fun ConnectionScreen(
                     )
                 }
                 Button(
-                    onClick = { onConnect(url.trim(), code.trim()) },
+                    onClick = ::connect,
                     enabled = canConnect,
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(18.dp),

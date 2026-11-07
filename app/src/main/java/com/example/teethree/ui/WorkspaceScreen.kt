@@ -39,6 +39,24 @@ import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SmartToy
+import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.Unarchive
+import androidx.compose.material3.SecondaryTabRow
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.material3.Tab
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
+import kotlinx.coroutines.launch
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
@@ -128,11 +146,21 @@ fun WorkspaceScreen(
     onEnvironmentThreadOpen: ((WorkspaceThreadRef) -> Unit)? = null,
     bottomEnvironmentComposer: (@Composable (WorkspaceProjectRef?) -> Unit)? = null,
     onEnvironmentNewThread: ((WorkspaceProjectRef?) -> Unit)? = null,
+    canSettle: (WorkspaceThreadRef) -> Boolean = { false },
+    onSetSettled: (WorkspaceThreadRef, T3Thread, Boolean) -> Unit = { _, _, _ -> },
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var searchVisible by rememberSaveable { mutableStateOf(false) }
     var projectGroupKey by rememberSaveable { mutableStateOf<String?>(null) }
     var showSnoozed by rememberSaveable { mutableStateOf(false) }
+    // Two lists: what is still live, and what has been settled (done, out of the way).
+    var settledTab by rememberSaveable { mutableStateOf(false) }
+    val snackbar = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    // A swipe moves the row at once; the server's answer then replaces the guess.
+    val settleGuesses = remember { mutableStateMapOf<String, Boolean>() }
+    // Bumped on every settle and Undo, so a returning row gets a fresh, unswiped state.
+    val swipeGenerations = remember { mutableStateMapOf<String, Int>() }
     var menuOpen by remember { mutableStateOf(false) }
     val sources =
         environments
@@ -261,15 +289,52 @@ fun WorkspaceScreen(
                         .thenByDescending { it.thread.updatedAt }
                 )
         }
-    val statusSections =
-        listOf(
-            "Needs you" to visibleThreads.filter { it.thread.needsAttention },
-            "Running" to
-                visibleThreads.filter { !it.thread.needsAttention && it.thread.isWorking() },
-            "Earlier" to
-                visibleThreads.filter { !it.thread.needsAttention && !it.thread.isWorking() },
-        )
-    val sections = statusSections
+    fun settleKey(ref: WorkspaceThreadRef) = "${ref.connectionId}:${ref.threadId}"
+    SideEffect {
+        visibleThreads.forEach { row ->
+            val key = settleKey(row.ref)
+            if (settleGuesses[key] == row.thread.settled) settleGuesses.remove(key)
+        }
+    }
+    fun EnvironmentThreadItem.isSettled() =
+        !thread.needsAttention &&
+            !thread.isWorking() &&
+            (settleGuesses[settleKey(ref)] ?: thread.settled)
+    val current = visibleThreads.filterNot { it.isSettled() }
+    val settled = visibleThreads.filter { it.isSettled() }
+    val sections =
+        if (settledTab) listOf("" to settled)
+        else
+            listOf(
+                "Needs you" to current.filter { it.thread.needsAttention },
+                "Running" to current.filter { !it.thread.needsAttention && it.thread.isWorking() },
+                "Earlier" to current.filter { !it.thread.needsAttention && !it.thread.isWorking() },
+            )
+    fun setSettled(row: EnvironmentThreadItem, target: Boolean) {
+        val key = settleKey(row.ref)
+        swipeGenerations[key] = (swipeGenerations[key] ?: 0) + 1
+        settleGuesses[key] = target
+        onSetSettled(row.ref, row.thread, target)
+        scope.launch {
+            // If the desktop never confirms (say the request failed), drop the guess.
+            launch {
+                delay(15_000)
+                if (settleGuesses[key] == target) settleGuesses.remove(key)
+            }
+            snackbar.currentSnackbarData?.dismiss()
+            val result =
+                snackbar.showSnackbar(
+                    if (target) "Chat settled" else "Moved back to Current",
+                    actionLabel = "Undo",
+                    duration = SnackbarDuration.Short,
+                )
+            if (result == SnackbarResult.ActionPerformed) {
+                swipeGenerations[key] = (swipeGenerations[key] ?: 0) + 1
+                settleGuesses[key] = !target
+                onSetSettled(row.ref, row.thread, !target)
+            }
+        }
+    }
     Scaffold(
         modifier = modifier,
         topBar = {
@@ -444,6 +509,27 @@ fun WorkspaceScreen(
                             )
                         }
                     }
+                    if (!showArchived)
+                        SecondaryTabRow(
+                            selectedTabIndex = if (settledTab) 1 else 0,
+                            containerColor = Color.Transparent,
+                            modifier = Modifier.padding(top = 4.dp),
+                        ) {
+                            Tab(
+                                selected = !settledTab,
+                                onClick = { settledTab = false },
+                                text = { Text("Current") },
+                                modifier = Modifier.testTag("tab-current"),
+                            )
+                            Tab(
+                                selected = settledTab,
+                                onClick = { settledTab = true },
+                                text = {
+                                    Text(if (settled.isEmpty()) "Settled" else "Settled · ${settled.size}")
+                                },
+                                modifier = Modifier.testTag("tab-settled"),
+                            )
+                        }
                 }
             }
         },
@@ -518,7 +604,7 @@ fun WorkspaceScreen(
                 }
             sections.forEach { (heading, rows) ->
                 if (rows.isNotEmpty()) {
-                    item(key = "section:$heading") {
+                    if (heading.isNotEmpty()) item(key = "section:$heading") {
                         Text(
                             heading,
                             Modifier.padding(start = 8.dp, top = 18.dp, bottom = 8.dp),
@@ -530,6 +616,27 @@ fun WorkspaceScreen(
                         rows,
                         key = { Json.encodeToString(listOf(it.ref.connectionId, it.ref.threadId)) },
                     ) { row ->
+                        val rowSettled = row.isSettled()
+                        val swipeable =
+                            !row.thread.needsAttention && !row.thread.isWorking() && canSettle(row.ref)
+                        SettleSwipe(
+                            settled = rowSettled,
+                            generation = swipeGenerations[settleKey(row.ref)] ?: 0,
+                            enabled = swipeable,
+                            onSettle = { setSettled(row, !rowSettled) },
+                            modifier =
+                                if (reducedMotion) Modifier
+                                else
+                                    Modifier.animateItem(
+                                        fadeInSpec = tween(300),
+                                        placementSpec =
+                                            spring(
+                                                stiffness = Spring.StiffnessMediumLow,
+                                                visibilityThreshold = IntOffset.VisibilityThreshold,
+                                            ),
+                                        fadeOutSpec = tween(150),
+                                    ),
+                        ) {
                         WorkspaceThreadRow(
                             row.thread,
                             buildString {
@@ -545,23 +652,24 @@ fun WorkspaceScreen(
                                     onEnvironmentThreadOpen(row.ref)
                                 else onThreadOpen(row.thread)
                             },
-                            modifier =
-                                if (reducedMotion) Modifier
-                                else
-                                    Modifier.animateItem(
-                                        fadeInSpec = tween(300),
-                                        placementSpec =
-                                            spring(
-                                                stiffness = Spring.StiffnessMediumLow,
-                                                visibilityThreshold = IntOffset.VisibilityThreshold,
-                                            ),
-                                        fadeOutSpec = tween(150),
-                                    ),
                             fresh = row.thread.id in freshIds,
                         )
+                        }
                     }
                 }
             }
+            val tabEmpty = if (settledTab) settled.isEmpty() else current.isEmpty()
+            if (tabEmpty && visibleThreads.isNotEmpty() && query.isBlank())
+                item(key = "tab-empty") {
+                    Text(
+                        if (settledTab) "Nothing settled yet. Swipe a finished chat to settle it."
+                        else "All caught up",
+                        Modifier.fillMaxWidth().padding(vertical = 24.dp),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    )
+                }
             if (visibleThreads.isEmpty())
                 item {
                     Column(
@@ -585,6 +693,15 @@ fun WorkspaceScreen(
                     }
                 }
         }
+        SnackbarHost(
+            snackbar,
+            Modifier.align(Alignment.BottomCenter)
+                .padding(
+                    bottom =
+                        if (composer != null) dockPadding
+                        else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                ),
+        )
         // Layered over the top of the list, so it never pushes anything down.
         WaitingProgressLine(Modifier.align(Alignment.TopCenter).padding(horizontal = 20.dp))
         }
@@ -681,6 +798,75 @@ private fun WorkspaceThreadRow(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+    }
+}
+
+/**
+ * Android's list swipe: the row follows the finger either way and, past the threshold, slides off
+ * and leaves this list (settled, or back to Current); a snackbar offers Undo. Screen readers get
+ * the same as a custom action.
+ */
+@Composable
+private fun SettleSwipe(
+    settled: Boolean,
+    generation: Int,
+    enabled: Boolean,
+    onSettle: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    if (!enabled) {
+        Box(modifier) { content() }
+        return
+    }
+    // A fresh state per settled value: a row brought back by Undo must not arrive already swiped
+    // off, or it would settle itself again.
+    val state = androidx.compose.runtime.key(generation) { rememberSwipeToDismissBoxState() }
+    val label = if (settled) "Move to Current" else "Settle"
+    SwipeToDismissBox(
+        state,
+        backgroundContent = {
+            val direction = state.dismissDirection
+            val reached = state.targetValue != SwipeToDismissBoxValue.Settled
+            val fill by androidx.compose.animation.animateColorAsState(
+                if (reached) MaterialTheme.colorScheme.primaryContainer
+                else MaterialTheme.colorScheme.surfaceContainerHighest,
+                label = "settle-fill",
+            )
+            val iconScale by androidx.compose.animation.core.animateFloatAsState(
+                if (reached) 1.15f else 1f,
+                label = "settle-icon",
+            )
+            Row(
+                Modifier.fillMaxSize()
+                    .background(fill, RoundedCornerShape(18.dp))
+                    .padding(horizontal = 24.dp),
+                horizontalArrangement =
+                    if (direction == SwipeToDismissBoxValue.StartToEnd) Arrangement.Start
+                    else Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    if (settled) Icons.Outlined.Unarchive else Icons.Outlined.Inventory2,
+                    label,
+                    Modifier.graphicsLayer {
+                        scaleX = iconScale
+                        scaleY = iconScale
+                    },
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            }
+        },
+        modifier =
+            modifier.testTag("settle-swipe").semantics {
+                customActions = listOf(CustomAccessibilityAction(label) { onSettle(); true })
+            },
+        onDismiss = { onSettle() },
+    ) {
+        // Opaque, so the action colour only shows where the row has moved away.
+        Box(Modifier.background(MaterialTheme.colorScheme.surface, RoundedCornerShape(18.dp))) {
+            content()
         }
     }
 }

@@ -52,11 +52,16 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 
 @Composable
-fun ThreadStatusPanel(repository: T3Repository, thread: T3Thread, onOpenThread: (String) -> Unit) {
+fun ThreadStatusPanel(
+    repository: T3Repository,
+    thread: T3Thread,
+    onOpenThread: (String) -> Unit,
+    open: Boolean,
+    onDismiss: () -> Unit,
+) {
     val state by repository.state.collectAsStateWithLifecycle()
     val tools = remember(repository) { ThreadStatusTools(repository) }
     val scope = rememberCoroutineScope()
-    var expanded by remember(thread.id) { mutableStateOf(false) }
     var busy by remember(thread.id) { mutableStateOf(false) }
     var error by remember(thread.id) { mutableStateOf<String?>(null) }
     var notice by remember(thread.id) { mutableStateOf<String?>(null) }
@@ -103,7 +108,7 @@ fun ThreadStatusPanel(repository: T3Repository, thread: T3Thread, onOpenThread: 
     fun openThread(id: String) {
         action {
             tools.openThread(id)
-            expanded = false
+            onDismiss()
             onOpenThread(id)
         }
     }
@@ -117,38 +122,10 @@ fun ThreadStatusPanel(repository: T3Repository, thread: T3Thread, onOpenThread: 
             }
         }
     }
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        val label =
-            when {
-                tasks.isNotEmpty() -> "Background work · ${tasks.size}"
-                agents.isNotEmpty() ->
-                    "Agents · ${agents.count { activeSubagent(it.string("status")) }}/${agents.size}"
-                snoozed -> "Snoozed"
-                thread.settled -> "Settled"
-                woke -> "Woke from snooze"
-                providerManagedChild(thread) -> "Provider agent · read only"
-                else -> "Conversation status"
-            }
-        TextButton(
-            onClick = {
-                expanded = true
-                now = Instant.now()
-            }
-        ) {
-            Text(label)
-        }
-        if (goal != null)
-            Text(
-                goal.string("objective"),
-                Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.labelSmall,
-            )
-    }
-    if (expanded)
+    LaunchedEffect(open) { if (open) now = Instant.now() }
+    if (open)
         AlertDialog(
-            onDismissRequest = { expanded = false },
+            onDismissRequest = onDismiss,
             title = { Text("Status and agents") },
             text = {
                 Column(
@@ -389,7 +366,7 @@ fun ThreadStatusPanel(repository: T3Repository, thread: T3Thread, onOpenThread: 
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { expanded = false }) { Text("Close") } },
+            confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
         )
     stopping?.let { agent ->
         AlertDialog(

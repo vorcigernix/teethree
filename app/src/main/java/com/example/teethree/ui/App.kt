@@ -928,6 +928,14 @@ fun T3App(model: AppViewModel, incomingLink: String?, onLinkConsumed: () -> Unit
                                                             startNewTask(target.projectId)
                                                         else model.prepareWorkspaceTask(target)
                                                     },
+                                                    canSettle = { ref ->
+                                                        canOperate &&
+                                                            ref.connectionId ==
+                                                                app.activeConnectionId
+                                                    },
+                                                    onSetSettled = { _, thread, settled ->
+                                                        model.setSettled(thread, settled)
+                                                    },
                                                     onEnvironmentThreadOpen = { ref ->
                                                         if (
                                                             ref.connectionId ==
@@ -1017,19 +1025,24 @@ fun T3App(model: AppViewModel, incomingLink: String?, onLinkConsumed: () -> Unit
                                                         Column(
                                                             Modifier.fillMaxSize().statusBarsPadding()
                                                         ) {
+                                                            var statusOpen by
+                                                                remember(selectedThread.id) {
+                                                                    mutableStateOf(false)
+                                                                }
+                                                            ThreadStatusPanel(
+                                                                model.repository,
+                                                                selectedThread,
+                                                                onOpenThread = model::selectThread,
+                                                                open = statusOpen,
+                                                                onDismiss = { statusOpen = false },
+                                                            )
                                                             Row(
                                                                 Modifier.fillMaxWidth(),
+                                                                horizontalArrangement =
+                                                                    Arrangement.End,
                                                                 verticalAlignment =
                                                                     Alignment.CenterVertically,
                                                             ) {
-                                                                Box(Modifier.weight(1f)) {
-                                                                    ThreadStatusPanel(
-                                                                        model.repository,
-                                                                        selectedThread,
-                                                                        onOpenThread =
-                                                                            model::selectThread,
-                                                                    )
-                                                                }
                                                                 Box(
                                                                     Modifier.widthIn(max = 160.dp)
                                                                 ) {
@@ -1115,6 +1128,12 @@ fun T3App(model: AppViewModel, incomingLink: String?, onLinkConsumed: () -> Unit
                                                                     screen = "device"
                                                                 },
                                                                 embedded = !compactNavigation,
+                                                                onStatus = { statusOpen = true },
+                                                                onToggleSettled = {
+                                                                    model.toggleSettled(
+                                                                        selectedThread
+                                                                    )
+                                                                },
                                                                 thread = selectedThread,
                                                                 timeline = repository.timeline,
                                                                 pendingRequests =
