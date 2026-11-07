@@ -100,9 +100,11 @@ releasing it under the MIT license. If you like what Teethree does, go star the 
 Teethree adds the native Android shell and its voice-first interface on top. Problems you
 hit in this app are likely ours, not T3 Code's, so please report them here.
 
-## Licenses
+## License
 
-Code ported from T3 Code keeps its upstream MIT notice (© T3 Tools Inc.) in
-`third_party/t3code/LICENSE`.
-The terminal runtime and font licenses and provenance are in `third_party/ghostty`. This
-repository doesn't have a license of its own yet.
+Teethree is released under the [MIT License](LICENSE), the same license as T3 Code, kept
+as it appears in the original repository (© T3 Tools Inc.). A copy of the upstream notice
+also stays with the ported sources in `third_party/t3code/LICENSE`.
+
+The terminal runtime and fonts have their own licenses and provenance, recorded in
+`third_party/ghostty`.
