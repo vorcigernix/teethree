@@ -1,9 +1,13 @@
 # Teethree
 
-A native Android client for T3 Code, by T3 Tools, written in Kotlin and Jetpack
-Compose. It connects to a T3 Code environment running on your
-desktop or server, so you can follow your coding agents, answer them, and start new
-tasks from your phone, by voice or by keyboard.
+A native Android version of [T3 Code](https://github.com/pingdotgg/t3code), rebuilt in
+Kotlin and Jetpack Compose around a voice-first interface.
+
+T3 Code is Theo Browne's minimal GUI for coding agents, built by Theo and the T3 Tools
+team. Everything that makes it work, from the agent orchestration to the environments you
+connect to, comes from their project. Teethree only replaces the phone app: it connects to
+the same T3 Code environment on your desktop or server, so you can follow your coding
+agents, answer them, and start new tasks from your phone, mostly by talking to it.
 
 ## What it does
 
@@ -86,8 +90,19 @@ third_party/
   t3code/      upstream license for ported T3 Code sources
 ```
 
+## Credits
+
+[T3 Code](https://github.com/pingdotgg/t3code) is created by Theo Browne and T3 Tools. This
+app wouldn't exist without it: the protocol, the environments, the agent workflow and much
+of the ported client logic are theirs. Thank you, Theo and team, for building it and
+releasing it under the MIT license. If you like what Teethree does, go star the original.
+
+Teethree adds the native Android shell and its voice-first interface on top. Problems you
+hit in this app are likely ours, not T3 Code's, so please report them here.
+
 ## Licenses
 
-Code ported from T3 Code keeps its upstream MIT notice in `third_party/t3code/LICENSE`.
+Code ported from T3 Code keeps its upstream MIT notice (© T3 Tools Inc.) in
+`third_party/t3code/LICENSE`.
 The terminal runtime and font licenses and provenance are in `third_party/ghostty`. This
 repository doesn't have a license of its own yet.
