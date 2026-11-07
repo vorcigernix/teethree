@@ -6,6 +6,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
@@ -192,6 +194,21 @@ internal fun TaskComposer(
         }
         return
     }
+    // The field owns its text and cursor. The draft it saves comes back a frame later (the dock is
+    // drawn by a shared host), and feeding that stale copy back in moved the cursor and scrambled
+    // fast typing. So the draft only replaces the text when it changed for another reason
+    // (dictation, sent and cleared, another chat), never when it is an echo of our own edit.
+    var field by remember { mutableStateOf(TextFieldValue(editableText, TextRange(editableText.length))) }
+    val echoes = remember { ArrayDeque<String>() }
+    if (editableText == field.text) echoes.clear()
+    else {
+        val echo = echoes.indexOf(editableText)
+        if (echo >= 0) repeat(echo) { echoes.removeFirst() }
+        else {
+            echoes.clear()
+            field = TextFieldValue(editableText, TextRange(editableText.length))
+        }
+    }
     Column(modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
         Surface(
             shape = RoundedCornerShape(24.dp),
@@ -204,8 +221,16 @@ internal fun TaskComposer(
                 AttachmentStrip(draft.attachments, attachmentRemovalEnabled, onRemoveAttachment)
                 ComposerContextStrip(draft.context, attachmentRemovalEnabled, onRemoveContext)
                 BasicTextField(
-                    value = editableText,
-                    onValueChange = { onDraftChange(replaceComposerDraftText(draft, it)) },
+                    value = field,
+                    onValueChange = { next ->
+                        val changed = next.text != field.text
+                        field = next
+                        if (changed) {
+                            echoes.addLast(next.text)
+                            if (echoes.size > 64) echoes.removeFirst()
+                            onDraftChange(replaceComposerDraftText(latestDraft.value, next.text))
+                        }
+                    },
                     enabled = editable,
                     textStyle = MaterialTheme.typography.bodyLarge.copy(color = colors.onSurface),
                     cursorBrush = SolidColor(colors.primary),
@@ -239,7 +264,7 @@ internal fun TaskComposer(
                             .semantics { contentDescription = "Message" },
                     decorationBox = { input ->
                         Box {
-                            if (editableText.isEmpty()) {
+                            if (field.text.isEmpty()) {
                                 Text(
                                     placeholder,
                                     style = MaterialTheme.typography.bodyLarge,
@@ -257,7 +282,7 @@ internal fun TaskComposer(
                         onDraftChange(
                             replaceComposerDraftText(
                                 draft,
-                                listOf(editableText, it)
+                                listOf(field.text, it)
                                     .filter(String::isNotBlank)
                                     .joinToString(" "),
                             )
