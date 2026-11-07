@@ -9,6 +9,12 @@ connect to, comes from their project. Teethree only replaces the phone app: it c
 the same T3 Code environment on your desktop or server, so you can follow your coding
 agents, answer them, and start new tasks from your phone, mostly by talking to it.
 
+<p align="center">
+  <img src="docs/screenshots/chats.png" width="250" alt="Chats list with the voice dock">
+  <img src="docs/screenshots/listening.png" width="250" alt="Steering a running agent by voice">
+  <img src="docs/screenshots/hands-free-approval.png" width="250" alt="Approving an agent's change hands-free">
+</p>
+
 ## What it does
 
 - **Conversations.** Browse chats grouped by what needs you, what's running and what's
@@ -32,6 +38,15 @@ agents, answer them, and start new tasks from your phone, mostly by talking to i
   console on a half-folded phone.
 - **Several environments.** Pair with multiple T3 Code environments, directly over the
   local network or through T3 Connect.
+
+## On foldables
+
+<p align="center">
+  <img src="docs/screenshots/foldable-tabletop.png" width="400" alt="Tabletop voice console on a half-folded phone">
+  <img src="docs/screenshots/foldable-unfolded.png" width="400" alt="Chat list and conversation side by side on an unfolded phone">
+</p>
+
+Screens are renders from the app's design file, with demo content.
 
 ## Requirements
 
